@@ -1,22 +1,22 @@
-import got from 'got';
-import sharp from 'sharp';
-import find from 'lodash.find';
-import uniqBy from 'lodash.uniqby';
-import url from 'url';
-import chunk from 'lodash.chunk';
-import { mapSeries } from 'modern-async';
+import got from "got";
+import sharp from "sharp";
+import find from "lodash.find";
+import uniqBy from "lodash.uniqby";
+import url from "url";
+import chunk from "lodash.chunk";
+import { mapSeries } from "modern-async";
 
-import Image from './image';
-import IconMarker from './marker';
-import Polyline from './polyline';
-import MultiPolygon from './multipolygon';
-import Circle from './circle';
-import Text from './text';
-import Bound from './bound';
-import TileServerConfig from './tileserverconfig';
+import Image from "./image";
+import IconMarker from "./marker";
+import Polyline from "./polyline";
+import MultiPolygon from "./multipolygon";
+import Circle from "./circle";
+import Text from "./text";
+import Bound from "./bound";
+import TileServerConfig from "./tileserverconfig";
 
-import asyncQueue from './helper/asyncQueue';
-import geoutils from './helper/geo';
+import asyncQueue from "./helper/asyncQueue";
+import geoutils from "./helper/geo";
 
 const RENDER_CHUNK_SIZE = 1000;
 
@@ -26,7 +26,7 @@ class StaticMaps {
 
     this.tileLayers = [];
 
-    if (typeof this.options.tileLayers === 'undefined') {
+    if (typeof this.options.tileLayers === "undefined") {
       // Pulling from old options for backwards compatibility
       const baseLayerOptions = {};
       if (this.options.tileUrl) {
@@ -51,7 +51,8 @@ class StaticMaps {
     this.tileRequestTimeout = this.options.tileRequestTimeout;
     this.tileRequestHeader = this.options.tileRequestHeader;
     this.tileRequestLimit = Number.isFinite(this.options.tileRequestLimit)
-      ? Number(this.options.tileRequestLimit) : 2;
+      ? Number(this.options.tileRequestLimit)
+      : 2;
     this.reverseY = this.options.reverseY || false;
     const zoomRange = this.options.zoomRange || {};
     this.zoomRange = {
@@ -103,12 +104,72 @@ class StaticMaps {
     this.text.push(new Text(options));
   }
 
+  // geoJSON types according to RFC 7946
+  addGeoJSON(options) {
+    switch (options.geoJSON.type) {
+      case "Point":
+        this.addMarker({
+          ...options.markerOptions,
+          coord: options.geoJSON.coordinates,
+        });
+        break;
+      case "MultiPoint":
+        options.geoJSON.coordinates.forEach((coordinate) => {
+          this.addMarker({ ...options.markerOptions, coord: coordinate });
+        });
+        break;
+      case "LineString":
+        this.addLine({
+          ...options.lineOptions,
+          coords: options.geoJSON.coordinates,
+        });
+        break;
+      case "MultiLineString":
+        options.geoJSON.coordinates.forEach((coordinate) => {
+          this.addLine({ ...options.lineOptions, coords: coordinate });
+        });
+        break;
+      case "Polygon":
+        this.addPolygon({
+          ...options.polygonOptions,
+          coords: options.geoJSON.coordinates,
+        });
+        break;
+      case "MultiPolygon":
+        this.addMultiPolygon({
+          ...options.polygonOptions,
+          coords: options.geoJSON.coordinates,
+        });
+        break;
+      case "GeometryCollection":
+        options.geoJSON.geometries.forEach((geometry) => {
+          this.addGeoJSON({ ...options, geoJSON: geometry });
+        });
+        break;
+      case "Feature":
+        this.addGeoJSON({ ...options, geoJSON: options.geoJSON.geometry });
+        break;
+      case "FeatureCollection":
+        options.geoJSON.features.forEach((feature) => {
+          this.addGeoJSON({ ...options, geoJSON: feature });
+        });
+        break;
+    }
+  }
+
   /**
-    * Render static map with all map features that were added to map before
-    */
+   * Render static map with all map features that were added to map before
+   */
   async render(center, zoom) {
-    if (!this.lines && !this.markers && !this.multipolygons && !(center && zoom)) {
-      throw new Error('Cannot render empty map: Add  center || lines || markers || polygons.');
+    if (
+      !this.lines &&
+      !this.markers &&
+      !this.multipolygons &&
+      !(center && zoom)
+    ) {
+      throw new Error(
+        "Cannot render empty map: Add  center || lines || markers || polygons."
+      );
     }
 
     this.center = center;
@@ -144,8 +205,8 @@ class StaticMaps {
   }
 
   /**
-    * calculate common extent of all current map features
-    */
+   * calculate common extent of all current map features
+   */
   determineExtent(zoom) {
     const extents = [];
 
@@ -213,18 +274,20 @@ class StaticMaps {
   }
 
   /**
-    * calculate the best zoom level for given extent
-    */
+   * calculate the best zoom level for given extent
+   */
   calculateZoom() {
     for (let z = this.zoomRange.max; z >= this.zoomRange.min; z--) {
       const extent = this.determineExtent(z);
-      const width = (geoutils.lonToX(extent[2], z)
-        - geoutils.lonToX(extent[0], z)) * this.tileSize;
-      if (width > (this.width - (this.padding[0] * 2))) continue;
+      const width =
+        (geoutils.lonToX(extent[2], z) - geoutils.lonToX(extent[0], z)) *
+        this.tileSize;
+      if (width > this.width - this.padding[0] * 2) continue;
 
-      const height = (geoutils.latToY(extent[1], z)
-        - geoutils.latToY(extent[3], z)) * this.tileSize;
-      if (height > (this.height - (this.padding[1] * 2))) continue;
+      const height =
+        (geoutils.latToY(extent[1], z) - geoutils.latToY(extent[3], z)) *
+        this.tileSize;
+      if (height > this.height - this.padding[1] * 2) continue;
 
       return z;
     }
@@ -232,18 +295,18 @@ class StaticMaps {
   }
 
   /**
-    * transform tile number to pixel on image canvas
-    */
+   * transform tile number to pixel on image canvas
+   */
   xToPx(x) {
-    const px = ((x - this.centerX) * this.tileSize) + (this.width / 2);
+    const px = (x - this.centerX) * this.tileSize + this.width / 2;
     return Number(Math.round(px));
   }
 
   /**
-    * transform tile number to pixel on image canvas
-    */
+   * transform tile number to pixel on image canvas
+   */
   yToPx(y) {
-    const px = ((y - this.centerY) * this.tileSize) + (this.height / 2);
+    const px = (y - this.centerY) * this.tileSize + this.height / 2;
     return Number(Math.round(px));
   }
 
@@ -253,32 +316,40 @@ class StaticMaps {
       console.log(1);
       return this.image.draw([]);
     }
-    const xMin = Math.floor(this.centerX - (0.5 * this.width / this.tileSize));
-    const yMin = Math.floor(this.centerY - (0.5 * this.height / this.tileSize));
-    const xMax = Math.ceil(this.centerX + (0.5 * this.width / this.tileSize));
-    const yMax = Math.ceil(this.centerY + (0.5 * this.height / this.tileSize));
+    const xMin = Math.floor(this.centerX - (0.5 * this.width) / this.tileSize);
+    const yMin = Math.floor(this.centerY - (0.5 * this.height) / this.tileSize);
+    const xMax = Math.ceil(this.centerX + (0.5 * this.width) / this.tileSize);
+    const yMax = Math.ceil(this.centerY + (0.5 * this.height) / this.tileSize);
 
     const result = [];
 
     for (let x = xMin; x < xMax; x++) {
       for (let y = yMin; y < yMax; y++) {
         // # x and y may have crossed the date line
-        const maxTile = (2 ** this.zoom);
+        const maxTile = 2 ** this.zoom;
         const tileX = (x + maxTile) % maxTile;
         let tileY = (y + maxTile) % maxTile;
-        if (this.reverseY) tileY = ((1 << this.zoom) - tileY) - 1;
+        if (this.reverseY) tileY = (1 << this.zoom) - tileY - 1;
 
         let tileUrl;
-        if (config.tileUrl.includes('{quadkey}')) {
+        if (config.tileUrl.includes("{quadkey}")) {
           const quadKey = geoutils.tileXYToQuadKey(tileX, tileY, this.zoom);
-          tileUrl = config.tileUrl.replace('{quadkey}', quadKey);
+          tileUrl = config.tileUrl.replace("{quadkey}", quadKey);
         } else {
-          tileUrl = config.tileUrl.replace('{z}', this.zoom).replace('{x}', tileX).replace('{y}', tileY);
+          tileUrl = config.tileUrl
+            .replace("{z}", this.zoom)
+            .replace("{x}", tileX)
+            .replace("{y}", tileY);
         }
 
         if (config.tileSubdomains.length > 0) {
           // replace subdomain with random domain from tileSubdomains array
-          tileUrl = tileUrl.replace('{s}', config.tileSubdomains[Math.floor(Math.random() * config.tileSubdomains.length)]);
+          tileUrl = tileUrl.replace(
+            "{s}",
+            config.tileSubdomains[
+              Math.floor(Math.random() * config.tileSubdomains.length)
+            ]
+          );
         }
 
         result.push({
@@ -313,15 +384,13 @@ class StaticMaps {
           height="${imageMetadata.height}px"
           version="1.1"
           xmlns="http://www.w3.org/2000/svg">
-          ${c.map((f) => svgFunction(f)).join('\n')}
+          ${c.map((f) => svgFunction(f)).join("\n")}
         </svg>
       `;
       return { input: Buffer.from(svg), top: 0, left: 0 };
     });
 
-    this.image.image = await baseImage
-      .composite(processedChunks)
-      .toBuffer();
+    this.image.image = await baseImage.composite(processedChunks).toBuffer();
   }
 
   /**
@@ -329,7 +398,11 @@ class StaticMaps {
    */
   circleToSVG(circle) {
     const latCenter = circle.coord[1];
-    const radiusInPixel = geoutils.meterToPixel(circle.radius, this.zoom, latCenter);
+    const radiusInPixel = geoutils.meterToPixel(
+      circle.radius,
+      this.zoom,
+      latCenter
+    );
     const x = this.xToPx(geoutils.lonToX(circle.coord[0], this.zoom));
     const y = this.yToPx(geoutils.latToY(circle.coord[1], this.zoom));
     return `
@@ -361,7 +434,7 @@ class StaticMaps {
         style="fill-rule: inherit; font-family: ${text.font};"
         font-size="${text.size}pt"
         stroke="${text.color}"
-        fill="${text.fill ? text.fill : 'none'}"
+        fill="${text.fill ? text.fill : "none"}"
         stroke-width="${text.width}"
         text-anchor="${text.anchor}"
       >
@@ -374,10 +447,12 @@ class StaticMaps {
    *  Render MultiPolygon to SVG
    */
   multiPolygonToSVG(multipolygon) {
-    const shapeArrays = multipolygon.coords.map((shape) => shape.map((coord) => [
-      this.xToPx(geoutils.lonToX(coord[0], this.zoom)),
-      this.yToPx(geoutils.latToY(coord[1], this.zoom)),
-    ]));
+    const shapeArrays = multipolygon.coords.map((shape) =>
+      shape.map((coord) => [
+        this.xToPx(geoutils.lonToX(coord[0], this.zoom)),
+        this.yToPx(geoutils.latToY(coord[1], this.zoom)),
+      ])
+    );
 
     const pathArrays = shapeArrays.map((points) => {
       const startPoint = points.shift();
@@ -385,17 +460,17 @@ class StaticMaps {
       const pathParts = [
         `M ${startPoint[0]} ${startPoint[1]}`,
         ...points.map((p) => `L ${p[0]} ${p[1]}`),
-        'Z',
+        "Z",
       ];
 
-      return pathParts.join(' ');
+      return pathParts.join(" ");
     });
 
     return `<path
-      d="${pathArrays.join(' ')}"
+      d="${pathArrays.join(" ")}"
       style="fill-rule: inherit;"
       stroke="${multipolygon.color}"
-      fill="${multipolygon.fill ? multipolygon.fill : 'none'}"
+      fill="${multipolygon.fill ? multipolygon.fill : "none"}"
       stroke-width="${multipolygon.width}"/>`;
   }
 
@@ -407,11 +482,11 @@ class StaticMaps {
       this.xToPx(geoutils.lonToX(coord[0], this.zoom)),
       this.yToPx(geoutils.latToY(coord[1], this.zoom)),
     ]);
-    return `<${(line.type === 'polyline') ? 'polyline' : 'polygon'}
+    return `<${line.type === "polyline" ? "polyline" : "polygon"}
               style="fill-rule: inherit;"
-              points="${points.join(' ')}"
+              points="${points.join(" ")}"
               stroke="${line.color}"
-              fill="${line.fill ? line.fill : 'none'}"
+              fill="${line.fill ? line.fill : "none"}"
               stroke-width="${line.width}"/>`;
   }
 
@@ -425,29 +500,30 @@ class StaticMaps {
         const top = Math.round(marker.position[1]);
         const left = Math.round(marker.position[0]);
 
-        if (
-          top < 0
-          || left < 0
-          || top > this.height
-          || left > this.width
-        ) return;
+        if (top < 0 || left < 0 || top > this.height || left > this.width)
+          return;
 
         const markerInstance = await sharp(marker.imgData);
 
         if (marker.width === null || marker.height === null) {
           const metadata = await markerInstance.metadata();
 
-          if (Number.isFinite(metadata.width) && Number.isFinite(metadata.height)) {
+          if (
+            Number.isFinite(metadata.width) &&
+            Number.isFinite(metadata.height)
+          ) {
             marker.setSize(metadata.width, metadata.height);
           } else {
-            throw new Error(`Cannot detectimage size of marker ${marker.img}. Please define manually!`);
+            throw new Error(
+              `Cannot detectimage size of marker ${marker.img}. Please define manually!`
+            );
           }
         }
 
         // Check if resize marker image is needed
         if (
-          marker.drawWidth !== marker.width
-          || marker.drawHeight !== marker.height
+          marker.drawWidth !== marker.width ||
+          marker.drawHeight !== marker.height
         ) {
           const resizeData = {
             fit: marker.resizeMode,
@@ -461,16 +537,17 @@ class StaticMaps {
             resizeData.height = marker.drawHeight;
           }
 
-          await markerInstance
-            .resize(resizeData);
+          await markerInstance.resize(resizeData);
         }
 
         this.image.image = await sharp(this.image.image)
-          .composite([{
-            input: await markerInstance.toBuffer(),
-            top,
-            left,
-          }])
+          .composite([
+            {
+              input: await markerInstance.toBuffer(),
+              top,
+              left,
+            },
+          ])
           .toBuffer();
       });
     });
@@ -489,12 +566,15 @@ class StaticMaps {
   }
 
   /**
-    *   Preloading the icon image
-    */
+   *   Preloading the icon image
+   */
   loadMarker() {
     return new Promise((resolve, reject) => {
       if (!this.markers.length) resolve(true);
-      const icons = uniqBy(this.markers.map((m) => ({ file: m.img })), 'file');
+      const icons = uniqBy(
+        this.markers.map((m) => ({ file: m.img })),
+        "file"
+      );
 
       let count = 1;
       icons.forEach(async (ico) => {
@@ -508,7 +588,7 @@ class StaticMaps {
                 rejectUnauthorized: false,
               },
               url: icon.file,
-              responseType: 'buffer',
+              responseType: "buffer",
             });
             icon.data = await sharp(img.body).toBuffer();
           } else {
@@ -524,8 +604,10 @@ class StaticMaps {
           this.markers.forEach((mark) => {
             const marker = mark;
             marker.position = [
-              this.xToPx(geoutils.lonToX(marker.coord[0], this.zoom)) - marker.offset[0],
-              this.yToPx(geoutils.latToY(marker.coord[1], this.zoom)) - marker.offset[1],
+              this.xToPx(geoutils.lonToX(marker.coord[0], this.zoom)) -
+                marker.offset[0],
+              this.yToPx(geoutils.latToY(marker.coord[1], this.zoom)) -
+                marker.offset[1],
             ];
             const imgData = find(icons, { file: marker.img });
             marker.set(imgData.data);
@@ -543,7 +625,7 @@ class StaticMaps {
   async getTile(data) {
     const options = {
       url: data.url,
-      responseType: 'buffer',
+      responseType: "buffer",
       // resolveWithFullResponse: true,
       headers: this.tileRequestHeader || {},
       timeout: this.tileRequestTimeout,
@@ -553,8 +635,9 @@ class StaticMaps {
       const res = await got.get(options);
       const { body, headers } = res;
 
-      const contentType = headers['content-type'];
-      if (!contentType.startsWith('image/')) throw new Error('Tiles server response with wrong data');
+      const contentType = headers["content-type"];
+      if (!contentType.startsWith("image/"))
+        throw new Error("Tiles server response with wrong data");
       // console.log(headers);
 
       return {
@@ -589,10 +672,12 @@ class StaticMaps {
         const sQueue = [];
         aQueue.push(async () => {
           chunks.forEach((r) => {
-            sQueue.push((async () => {
-              const tile = await this.getTile(r);
-              tiles.push(tile);
-            })());
+            sQueue.push(
+              (async () => {
+                const tile = await this.getTile(r);
+                tiles.push(tile);
+              })()
+            );
           });
           await Promise.all(sQueue);
         });
@@ -603,7 +688,9 @@ class StaticMaps {
 
     // Do not limit concurrent connections at all
     const tilePromises = [];
-    baseLayers.forEach((r) => { tilePromises.push(this.getTile(r)); });
+    baseLayers.forEach((r) => {
+      tilePromises.push(this.getTile(r));
+    });
     return Promise.all(tilePromises);
   }
 }
